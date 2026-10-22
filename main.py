@@ -6,8 +6,8 @@ import asyncio
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
 from aiogram.utils.token import TokenValidationError
-from db.database import init_db
-from bot.handlers import register_handlers
+from db.database import init_db, load_startup_context
+from bot.handlers import register_handlers, setup_bot_commands
 
 load_dotenv()
 
@@ -60,15 +60,35 @@ async def main():
 
     dp = Dispatcher()
 
-    # Создаем базу данных, если ее еще нет.
+    # Создаем базу и сразу читаем тезисы, сохранённые до выключения.
     try:
         init_db()
+        saved_context = load_startup_context()
     except Exception:
         logging.exception('Ошибка инициализации базы данных')
         raise
 
+    if not os.getenv('OPENAI_API_KEY', '').strip():
+        logging.warning(
+            'OPENAI_API_KEY не задан. Добавьте ключ в .env, иначе бот не сможет отвечать.'
+        )
+
+    if saved_context:
+        for table_name, theses in saved_context.items():
+            logging.info(
+                'Загружен контекст %s: %s тезис(ов). Они попадут в системный промпт.',
+                table_name,
+                len(theses),
+            )
+    else:
+        logging.info('Сохранённого контекста пока нет. Таблицы появятся с первым сообщением.')
+
     # Регистрируем обработчики команд и сообщений.
     register_handlers(dp)
+    try:
+        await setup_bot_commands(bot)
+    except Exception:
+        logging.exception('Не удалось обновить меню команд Telegram')
 
     # Запускаем бота с использованием start_polling (aiogram v3).
     try:
